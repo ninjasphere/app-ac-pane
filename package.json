@@ -1,0 +1,10 @@
+{
+  "id": "com.ninjablocks.app.weather-pane",
+  "name": "Air Conditioner Pane Application",
+  "version": "0.1.0",
+  "description": "Adds an AC pane to the LED matrix.",
+  "author": "Elliot Shepherd <elliot@ninjablocks.com>",
+  "keywords": ["ac", "aircon", "air conditioner"],
+  "license": "MIT",
+  "files": ["images"]
+}
