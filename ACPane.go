@@ -118,7 +118,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 
 									spew.Dump("Got demand state", state)
 
-									pane.controlled = state.State == "STATE_ACTIVE"
+									pane.controlled = (state.State == "ACTIVE")
 								}
 							}()
 						}
@@ -182,7 +182,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 			log.Infof("Failed to unmarshal demandstat state from %s error:%s", *params, err)
 		}
 
-		pane.controlled = state.State == "STATE_ACTIVE"
+		pane.controlled = state.State == "ACTIVE"
 
 		log.Infof("Got the demandstat state %d", pane.mode)
 	})
