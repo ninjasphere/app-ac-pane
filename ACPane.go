@@ -1,15 +1,21 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
+	"math"
 	"time"
 
+	"github.com/lucasb-eyer/go-colorful"
 	"github.com/ninjasphere/gestic-tools/go-gestic-sdk"
 	"github.com/ninjasphere/go-ninja/api"
-	"github.com/ninjasphere/sphere-go-led-controller/fonts/O4b03b"
+	"github.com/ninjasphere/go-ninja/channels"
+	"github.com/ninjasphere/go-ninja/model"
+	"github.com/ninjasphere/sphere-go-led-controller/fonts/clock"
+	"github.com/ninjasphere/sphere-go-led-controller/ui"
 	"github.com/ninjasphere/sphere-go-led-controller/util"
 	"github.com/ninjasphere/usvc-lib/config"
 )
@@ -19,10 +25,21 @@ var tempAdjustInterval = config.Duration(time.Millisecond*300, "ac.airwheel.inte
 var airWheelReset = config.Duration(time.Millisecond*500, "ac.airwheel.reset")
 var tapTimeout = config.Duration(time.Millisecond*500, "ac.tap.timeout")
 
+var (
+	red, _   = colorful.Hex("#fd9720")
+	blue, _  = colorful.Hex("#45aff9")
+	green, _ = colorful.Hex("#45f96b")
+)
+
 type ACPane struct {
-	mode       string
-	images     map[string]util.Image
-	targetTemp int
+	mode        string
+	images      map[string]util.Image
+	targetTemp  int
+	currentTemp int
+	controlled  bool
+
+	thermostat *ninja.ServiceClient
+	acstat     *ninja.ServiceClient
 
 	lastTempAdjust   time.Time
 	lastAirWheelTime time.Time
@@ -35,8 +52,10 @@ type ACPane struct {
 func NewACPane(conn *ninja.Connection) *ACPane {
 
 	pane := &ACPane{
-		mode:       "off",
-		targetTemp: 22,
+		mode:        "off",
+		controlled:  false,
+		targetTemp:  666,
+		currentTemp: 666,
 		images: map[string]util.Image{
 			"off":  util.LoadImage(util.ResolveImagePath("fan.gif")),
 			"fan":  util.LoadImage(util.ResolveImagePath("fan-on.gif")),
@@ -48,6 +67,83 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 	pane.ignoreTapTimer = time.AfterFunc(0, func() {
 		pane.ignoringTap = false
 	})
+
+	listening := make(map[string]bool)
+
+	onState := func(protocol string, cb func(params *json.RawMessage)) {
+		ui.GetChannelServicesContinuous("aircon", protocol, func(thing *model.Thing) bool {
+			return true
+		}, func(devices []*ninja.ServiceClient, err error) {
+			if err != nil {
+				log.Infof("Failed to update %s device: %s", protocol, err)
+			} else {
+				log.Infof("Got %d %s devices", len(devices), protocol)
+
+				for _, device := range devices {
+
+					log.Debugf("Checking %s device %s", protocol, device.Topic)
+
+					if _, ok := listening[device.Topic]; !ok {
+						listening[device.Topic] = true
+						// New device
+						log.Infof("Got new %s device: %s", protocol, device.Topic)
+
+						if protocol == "thermostat" {
+							pane.thermostat = device
+						}
+
+						if protocol == "acstat" {
+							pane.acstat = device
+						}
+
+						device.OnEvent("state", func(params *json.RawMessage, values map[string]string) bool {
+							cb(params)
+
+							return true
+						})
+					}
+				}
+			}
+		})
+	}
+
+	onState("temperature", func(params *json.RawMessage) {
+		var temp float64
+		err := json.Unmarshal(*params, &temp)
+		if err != nil {
+			log.Infof("Failed to unmarshal temp from %s error:%s", *params, err)
+		}
+
+		pane.currentTemp = int(temp)
+
+		log.Infof("Got the temp %d", pane.currentTemp)
+	})
+
+	onState("thermostat", func(params *json.RawMessage) {
+		var temp float64
+		err := json.Unmarshal(*params, &temp)
+		if err != nil {
+			log.Infof("Failed to unmarshal thermostat from %s error:%s", *params, err)
+		}
+
+		pane.targetTemp = int(temp)
+
+		log.Infof("Got the thermostat %d", pane.targetTemp)
+	})
+
+	onState("acstat", func(params *json.RawMessage) {
+		var state channels.ACState
+		err := json.Unmarshal(*params, &state)
+		if err != nil {
+			log.Infof("Failed to unmarshal acstat from %s error:%s", *params, err)
+		}
+
+		pane.mode = *state.Mode
+
+		log.Infof("Got the ac mode %d", pane.mode)
+	})
+
+	go ui.StartSearchTasks(conn)
 
 	return pane
 }
@@ -66,7 +162,7 @@ func (p *ACPane) IsEnabled() bool {
 
 func (p *ACPane) Gesture(gesture *gestic.GestureMessage) {
 
-	if !p.ignoringTap && gesture.Tap.Active() {
+	if p.acstat != nil && !p.ignoringTap && gesture.Tap.Active() {
 		log.Infof("AC tap!")
 
 		p.ignoringTap = true
@@ -82,9 +178,14 @@ func (p *ACPane) Gesture(gesture *gestic.GestureMessage) {
 		case "heat":
 			p.mode = "off"
 		}
+
+		p.acstat.Call("set", channels.ACState{
+			Mode: &p.mode,
+		}, nil, 0)
+
 	}
 
-	if p.lastAirWheel == nil || gesture.AirWheel.Counter != int(*p.lastAirWheel) {
+	if p.thermostat != nil && p.targetTemp != 666 && p.lastAirWheel == nil || gesture.AirWheel.Counter != int(*p.lastAirWheel) {
 
 		if time.Since(p.lastAirWheelTime) > airWheelReset {
 			p.lastAirWheel = nil
@@ -128,6 +229,8 @@ func (p *ACPane) Gesture(gesture *gestic.GestureMessage) {
 					p.targetTemp -= 1
 				}
 
+				p.thermostat.Call("set", p.targetTemp, nil, 0)
+
 			}
 
 		}
@@ -138,54 +241,46 @@ func (p *ACPane) Gesture(gesture *gestic.GestureMessage) {
 }
 
 func (p *ACPane) Render() (*image.RGBA, error) {
-	/*if p.temperature {
-		img := image.NewRGBA(image.Rect(0, 0, 16, 16))
-
-		drawText := func(text string, col color.RGBA, top int) {
-			width := O4b03b.Font.DrawString(img, 0, 8, text, color.Black)
-			start := int(16 - width - 1)
-
-			//spew.Dump("text", text, "width", width, "start", start)
-
-			O4b03b.Font.DrawString(img, start, top, text, col)
-		}
-
-		today := p.forecast.Daily.Data[0]
-
-		var min, max string
-		if p.forecast.Flags.Units == "us" {
-			min = fmt.Sprintf("%dF", int(today.TemperatureMin))
-			max = fmt.Sprintf("%dF", int(today.TemperatureMax))
-		} else {
-			min = fmt.Sprintf("%dC", int(today.TemperatureMin))
-			max = fmt.Sprintf("%dC", int(today.TemperatureMax))
-		}
-
-		drawText(max, color.RGBA{253, 151, 32, 255}, 3)
-		drawText(min, color.RGBA{69, 175, 249, 255}, 10)
-
-		return img, nil
-	} else {*/
 
 	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
 
-	drawText := func(text string, col color.RGBA, x, y int) {
-		//width := O4b03b.Font.DrawString(img, 0, 8, text, color.Black)
-		///start := int(16 - width - 1)
-
-		//spew.Dump("text", text, "width", width, "start", start)
-
-		O4b03b.Font.DrawString(img, x, y, text, col)
+	drawText := func(text string, col color.Color, x, y int) {
+		clock.Font.DrawString(img, x, y, text, col)
 	}
 
 	draw.Draw(img, img.Bounds(), p.images[p.mode].GetNextFrame(), img.Bounds().Min, draw.Src)
 
-	drawText("24", color.RGBA{253, 151, 32, 255}, 0, 11)
-	drawText(fmt.Sprintf("%d", p.targetTemp), color.RGBA{69, 175, 249, 255}, 9, 11)
+	targetCol := green
+	if p.controlled {
+		//drawText("$", green, 0, 11)
+		h, s, v := targetCol.Hsv()
+		targetCol = colorful.Hsv(sinTime(h), s, v)
+	}
+
+	if p.currentTemp != 666 {
+
+		if p.currentTemp > p.targetTemp {
+			drawText(fmt.Sprintf("%02d", p.currentTemp), red, 0, 11)
+		} else if p.currentTemp < p.targetTemp {
+			drawText(fmt.Sprintf("%02d", p.currentTemp), blue, 0, 11)
+		}
+
+	}
+
+	if p.targetTemp != 666 {
+		drawText(fmt.Sprintf("%02d", p.targetTemp), targetCol, 9, 11)
+	}
 
 	return img, nil
 }
 
 func (p *ACPane) IsDirty() bool {
 	return true
+}
+
+func sinTime(x float64) float64 {
+	t := float64(time.Now().Nanosecond()/int(time.Millisecond)) / 1000.0
+	t = math.Sin((t - 0.5) * (2 * math.Pi))
+	t = (t + 1) / 2
+	return x * t
 }
