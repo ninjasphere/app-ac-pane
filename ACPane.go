@@ -98,15 +98,15 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 							pane.acstat = device
 						}
 
-						if protocol == "demandstat" {
+						if protocol == "demand" {
 							go func() {
 								for {
 									time.Sleep(time.Second)
 
 									var state StateChangeNotification
-									err := device.Call("get", nil, &state, time.Second*10)
+									err := device.Call("getControlState", nil, &state, time.Second*10)
 									if err != nil {
-										log.Errorf("Failed to fetch state from demandstat channel: %s", err)
+										log.Errorf("Failed to fetch state from demand channel: %s", err)
 
 										if strings.Contains(err.Error(), "timed out") {
 											continue
@@ -116,7 +116,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 
 									}
 
-									spew.Dump("Got demandstat state", state)
+									spew.Dump("Got demand state", state)
 
 									pane.controlled = state.State == "STATE_ACTIVE"
 								}
@@ -172,9 +172,9 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 		log.Infof("Got the ac mode %d", pane.mode)
 	})
 
-	onState("demandstat", "statechange", func(params *json.RawMessage) {
+	onState("demand", "controlstate", func(params *json.RawMessage) {
 
-		spew.Dump("demandstat", params)
+		spew.Dump("demand/controlstate", params)
 
 		var state StateChangeNotification
 		err := json.Unmarshal(*params, &state)
