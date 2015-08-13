@@ -1,2 +1,2 @@
 #!/bin/bash
-go build && DEBUG=* ./app-ac-pane --led.host 192.168.0.125 --mqtt.host 192.168.0.125
+go build && DEBUG=* ./app-ac-pane --led.host aglsphere.local --mqtt.host aglsphere.local

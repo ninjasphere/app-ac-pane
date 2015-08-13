@@ -7,8 +7,10 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
+	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lucasb-eyer/go-colorful"
 	"github.com/ninjasphere/gestic-tools/go-gestic-sdk"
 	"github.com/ninjasphere/go-ninja/api"
@@ -70,7 +72,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 
 	listening := make(map[string]bool)
 
-	onState := func(protocol string, cb func(params *json.RawMessage)) {
+	onState := func(protocol, event string, cb func(params *json.RawMessage)) {
 		ui.GetChannelServicesContinuous("aircon", protocol, func(thing *model.Thing) bool {
 			return true
 		}, func(devices []*ninja.ServiceClient, err error) {
@@ -84,7 +86,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 					log.Debugf("Checking %s device %s", protocol, device.Topic)
 
 					if _, ok := listening[device.Topic]; !ok {
-						listening[device.Topic] = true
+
 						// New device
 						log.Infof("Got new %s device: %s", protocol, device.Topic)
 
@@ -96,7 +98,34 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 							pane.acstat = device
 						}
 
-						device.OnEvent("state", func(params *json.RawMessage, values map[string]string) bool {
+						if protocol == "demandstat" {
+							go func() {
+								for {
+									time.Sleep(time.Second)
+
+									var state StateChangeNotification
+									err := device.Call("get", nil, &state, time.Second*10)
+									if err != nil {
+										log.Errorf("Failed to fetch state from demandstat channel: %s", err)
+
+										if strings.Contains(err.Error(), "timed out") {
+											continue
+										} else {
+											break
+										}
+
+									}
+
+									spew.Dump("Got demandstat state", state)
+
+									pane.controlled = state.State == "STATE_ACTIVE"
+								}
+							}()
+						}
+
+						listening[device.Topic] = true
+
+						device.OnEvent(event, func(params *json.RawMessage, values map[string]string) bool {
 							cb(params)
 
 							return true
@@ -107,7 +136,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 		})
 	}
 
-	onState("temperature", func(params *json.RawMessage) {
+	onState("temperature", "state", func(params *json.RawMessage) {
 		var temp float64
 		err := json.Unmarshal(*params, &temp)
 		if err != nil {
@@ -119,7 +148,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 		log.Infof("Got the temp %d", pane.currentTemp)
 	})
 
-	onState("thermostat", func(params *json.RawMessage) {
+	onState("thermostat", "state", func(params *json.RawMessage) {
 		var temp float64
 		err := json.Unmarshal(*params, &temp)
 		if err != nil {
@@ -131,7 +160,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 		log.Infof("Got the thermostat %d", pane.targetTemp)
 	})
 
-	onState("acstat", func(params *json.RawMessage) {
+	onState("acstat", "state", func(params *json.RawMessage) {
 		var state channels.ACState
 		err := json.Unmarshal(*params, &state)
 		if err != nil {
@@ -143,9 +172,28 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 		log.Infof("Got the ac mode %d", pane.mode)
 	})
 
+	onState("demandstat", "statechange", func(params *json.RawMessage) {
+
+		spew.Dump("demandstat", params)
+
+		var state StateChangeNotification
+		err := json.Unmarshal(*params, &state)
+		if err != nil {
+			log.Infof("Failed to unmarshal demandstat state from %s error:%s", *params, err)
+		}
+
+		pane.controlled = state.State == "STATE_ACTIVE"
+
+		log.Infof("Got the demandstat state %d", pane.mode)
+	})
+
 	go ui.StartSearchTasks(conn)
 
 	return pane
+}
+
+type StateChangeNotification struct {
+	State string `json:"state"` // the current state of the controller
 }
 
 func (p *ACPane) KeepAwake() bool {
