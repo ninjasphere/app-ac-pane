@@ -38,7 +38,7 @@ type ACPane struct {
 	images      map[string]util.Image
 	targetTemp  int
 	currentTemp int
-	controlled  bool
+	flash       bool
 
 	thermostat *ninja.ServiceClient
 	acstat     *ninja.ServiceClient
@@ -55,7 +55,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 
 	pane := &ACPane{
 		mode:        "off",
-		controlled:  false,
+		flash:       false,
 		targetTemp:  666,
 		currentTemp: 666,
 		images: map[string]util.Image{
@@ -71,6 +71,10 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 	})
 
 	listening := make(map[string]bool)
+
+	isFlash := func(s string) bool {
+		return s == "ACTIVE"
+	}
 
 	onState := func(protocol, event string, cb func(params *json.RawMessage)) {
 		ui.GetChannelServicesContinuous("aircon", protocol, func(thing *model.Thing) bool {
@@ -118,7 +122,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 
 									spew.Dump("Got demand state", state)
 
-									pane.controlled = (state.State == "ACTIVE")
+									pane.flash = isFlash(state.State)
 								}
 							}()
 						}
@@ -182,7 +186,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 			log.Infof("Failed to unmarshal demandstat state from %s error:%s", *params, err)
 		}
 
-		pane.controlled = state.State == "ACTIVE"
+		pane.flash = isFlash(state.State)
 
 		log.Infof("Got the demandstat state %d", pane.mode)
 	})
@@ -299,7 +303,7 @@ func (p *ACPane) Render() (*image.RGBA, error) {
 	draw.Draw(img, img.Bounds(), p.images[p.mode].GetNextFrame(), img.Bounds().Min, draw.Src)
 
 	targetCol := green
-	if p.controlled {
+	if p.flash {
 		//drawText("$", green, 0, 11)
 		h, s, v := targetCol.Hsv()
 		targetCol = colorful.Hsv(sinTime(h), s, v)
