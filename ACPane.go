@@ -7,7 +7,6 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
-	"strings"
 	"time"
 
 	// "github.com/davecgh/go-spew/spew"
@@ -103,27 +102,19 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 						}
 
 						if protocol == "demand" {
+
+							// only need to query for the initial notification - listener will pick up the rest
+
 							go func() {
-								for {
-									time.Sleep(time.Second)
-
-									var state StateChangeNotification
-									err := device.Call("getControlState", nil, &state, time.Second*10)
-									if err != nil {
-										log.Errorf("Failed to fetch state from demand channel: %s", err)
-
-										if strings.Contains(err.Error(), "timed out") {
-											continue
-										} else {
-											break
-										}
-
-									}
-
-									// spew.Dump("Got demand state", state)
-
-									pane.flash = isFlash(state.State)
+								var state StateChangeNotification
+								err := device.Call("getControlState", nil, &state, time.Second*10)
+								if err != nil {
+									log.Errorf("Failed to fetch state from demand channel: %s", err)
 								}
+
+								// spew.Dump("Got demand state", state)
+
+								pane.flash = isFlash(state.State)
 							}()
 						}
 
