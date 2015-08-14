@@ -73,7 +73,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 	listening := make(map[string]bool)
 
 	isFlash := func(s string) bool {
-		return s == "ACTIVE"
+		return s == "SUSPENDED"
 	}
 
 	onState := func(protocol, event string, cb func(params *json.RawMessage)) {
