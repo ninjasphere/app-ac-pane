@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
+	// "github.com/davecgh/go-spew/spew"
 	"github.com/lucasb-eyer/go-colorful"
 	"github.com/ninjasphere/gestic-tools/go-gestic-sdk"
 	"github.com/ninjasphere/go-ninja/api"
@@ -120,7 +120,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 
 									}
 
-									spew.Dump("Got demand state", state)
+									// spew.Dump("Got demand state", state)
 
 									pane.flash = isFlash(state.State)
 								}
@@ -178,7 +178,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 
 	onState("demand", "controlstate", func(params *json.RawMessage) {
 
-		spew.Dump("demand/controlstate", params)
+		// spew.Dump("demand/controlstate", params)
 
 		var state StateChangeNotification
 		err := json.Unmarshal(*params, &state)
