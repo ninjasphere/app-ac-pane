@@ -101,15 +101,15 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 							pane.acstat = device
 						}
 
-						if protocol == "demand" {
+						if protocol == "demandcontrol" {
 
 							// only need to query for the initial notification - listener will pick up the rest
 
 							go func() {
 								var state StateChangeNotification
-								err := device.Call("getControlState", nil, &state, time.Second*10)
+								err := device.Call("get", nil, &state, time.Second*10)
 								if err != nil {
-									log.Errorf("Failed to fetch state from demand channel: %s", err)
+									log.Errorf("Failed to fetch state from demand control channel: %s", err)
 								}
 
 								// spew.Dump("Got demand state", state)
@@ -167,7 +167,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 		log.Infof("Got the ac mode %d", pane.mode)
 	})
 
-	onState("demand", "controlstate", func(params *json.RawMessage) {
+	onState("demandcontrol", "state", func(params *json.RawMessage) {
 
 		// spew.Dump("demand/controlstate", params)
 
@@ -179,7 +179,7 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 
 		pane.flash = isFlash(state.State)
 
-		log.Infof("Got the demandstat state %d", pane.mode)
+		log.Infof("Got the demandcontrol state %d", pane.mode)
 	})
 
 	go ui.StartSearchTasks(conn)
