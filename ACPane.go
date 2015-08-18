@@ -192,11 +192,11 @@ type StateChangeNotification struct {
 }
 
 func (p *ACPane) KeepAwake() bool {
-	return true
+	return false
 }
 
 func (p *ACPane) Locked() bool {
-	return true
+	return false
 }
 
 func (p *ACPane) IsEnabled() bool {
