@@ -6,5 +6,6 @@
   "author": "Elliot Shepherd <elliot@ninjablocks.com>",
   "keywords": ["ac", "aircon", "air conditioner"],
   "license": "MIT",
-  "files": ["images"]
+  "files": ["images"],
+  "main": "app-ac-pane"
 }
