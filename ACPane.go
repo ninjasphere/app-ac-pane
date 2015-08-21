@@ -228,7 +228,7 @@ func (p *ACPane) Gesture(gesture *gestic.GestureMessage) {
 
 	}
 
-	if p.thermostat != nil && p.targetTemp != 666 && p.lastAirWheel == nil || gesture.AirWheel.Counter != int(*p.lastAirWheel) {
+	if (p.thermostat != nil && p.targetTemp != 666 && p.lastAirWheel == nil) || (p.lastAirWheel != nil && gesture.AirWheel.Counter != int(*p.lastAirWheel)) {
 
 		if time.Since(p.lastAirWheelTime) > airWheelReset {
 			p.lastAirWheel = nil
