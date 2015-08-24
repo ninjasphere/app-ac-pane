@@ -39,8 +39,8 @@ type ACPane struct {
 	currentTemp int
 	flash       bool
 
-	thermostat *ninja.ServiceClient
-	acstat     *ninja.ServiceClient
+	thermostat []*ninja.ServiceClient
+	acstat     []*ninja.ServiceClient
 
 	lastTempAdjust   time.Time
 	lastAirWheelTime time.Time
@@ -48,11 +48,14 @@ type ACPane struct {
 	countSinceLast   int
 	ignoringTap      bool
 	ignoreTapTimer   *time.Timer
+	sendTempTimer    *time.Timer
 }
 
 func NewACPane(conn *ninja.Connection) *ACPane {
 
 	pane := &ACPane{
+		thermostat:  []*ninja.ServiceClient{},
+		acstat:      []*ninja.ServiceClient{},
 		mode:        "off",
 		flash:       false,
 		targetTemp:  666,
@@ -67,6 +70,12 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 
 	pane.ignoreTapTimer = time.AfterFunc(0, func() {
 		pane.ignoringTap = false
+	})
+
+	pane.sendTempTimer = time.AfterFunc(0, func() {
+		for _, thermostat := range pane.thermostat {
+			thermostat.Call("set", pane.targetTemp, nil, 0)
+		}
 	})
 
 	listening := make(map[string]bool)
@@ -94,11 +103,11 @@ func NewACPane(conn *ninja.Connection) *ACPane {
 						log.Infof("Got new %s device: %s", protocol, device.Topic)
 
 						if protocol == "thermostat" {
-							pane.thermostat = device
+							pane.thermostat = append(pane.thermostat, device)
 						}
 
 						if protocol == "acstat" {
-							pane.acstat = device
+							pane.acstat = append(pane.acstat, device)
 						}
 
 						if protocol == "demandcontrol" {
@@ -192,7 +201,7 @@ type StateChangeNotification struct {
 }
 
 func (p *ACPane) KeepAwake() bool {
-	return false
+	return true
 }
 
 func (p *ACPane) Locked() bool {
@@ -205,7 +214,7 @@ func (p *ACPane) IsEnabled() bool {
 
 func (p *ACPane) Gesture(gesture *gestic.GestureMessage) {
 
-	if p.acstat != nil && !p.ignoringTap && gesture.Tap.Active() {
+	if len(p.acstat) > 0 && !p.ignoringTap && gesture.Tap.Active() {
 		log.Infof("AC tap!")
 
 		p.ignoringTap = true
@@ -222,9 +231,11 @@ func (p *ACPane) Gesture(gesture *gestic.GestureMessage) {
 			p.mode = "off"
 		}
 
-		p.acstat.Call("set", channels.ACState{
-			Mode: &p.mode,
-		}, nil, 0)
+		for _, ac := range p.acstat {
+			ac.Call("set", channels.ACState{
+				Mode: &p.mode,
+			}, nil, 0)
+		}
 
 	}
 
@@ -272,7 +283,7 @@ func (p *ACPane) Gesture(gesture *gestic.GestureMessage) {
 					p.targetTemp -= 1
 				}
 
-				p.thermostat.Call("set", p.targetTemp, nil, 0)
+				p.sendTempTimer.Reset(time.Second * 2)
 
 			}
 
